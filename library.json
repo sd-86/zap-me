@@ -1,0 +1,19 @@
+{
+  "name": "ZapMe",
+  "description": "Use your Arduino to operate various electro shock collars.",
+  "keywords": "rf, radio, wireless, shock, collar, bdsm",
+  "authors":
+  {
+    "name": "sd_"
+  },
+  "repository":
+  {
+    "type": "git",
+    "url": "https://github.com/sd-86/zap-me.git"
+  },
+  "version": "0.99a",
+  "frameworks": [
+        "arduino"
+  ],
+  "platforms": "*"
+}
