@@ -126,4 +126,75 @@ class CH8803 : public ZapMe {
     uint16_t mMaxTransmitTimings;
 };
 
+class DogTronic : public ZapMe {
+  /*
+   * DogTronic uses a sync preamble of short pulses followed by a relatively
+   * slow series of constant length pulses. The gaps inbetween the pulses
+   * encode bits (short gap is 0, long gap is 1) and each command has 16 bits.
+   *
+   * For a command c[15:0], we have:
+   *
+   * c[15:10] - 6-bit ID (presumably)
+   * c[9:6]   - 4-bit shock strength (LSB first)
+   * c[5:4]   - 2-bit constant 0b10, unknown purpose
+   * c[3:0]   - 4-bit checksum (see below)
+   *
+   * The checksum c[3:0] is particularly weird of construction:
+   *
+   * This is a 4-bit value, but the bits are reordered, the proper number
+   * is reconstructed as c[2] c[3] c[0] c[1], so this is MSB but the bits
+   * have been pairwise swapped. Apart from that, it is a simple sum that
+   * does not cover the ID, but only the strength. Since the constant at
+   * c[5:4] never changes, we can't tell if it is part of the sum or not.
+   * The sum starts at an offset of 0b0100 and then the strength is added.
+   * However, if an overflow beyond 4-bit occurs, the sum is not simply
+   * truncated (mod 16), but the overflow bit is fed back into the register
+   * from the LSB side, so the checksum is:
+   *
+   *   (0b0100 + strength) mod 16 + (0b0100 + strength) >> 4.
+   *
+   * Internally, this is probably a 4-bit full adder with the carry-out
+   * hard-wired back to the carry-in.
+   *
+   * IMPORTANT: So far, with this implementation, the collar only accepts
+   *            4 different IDs as valid, these are: 14, 23, 44 and 53.
+   *            We don't know, why this is the case, it could be tied to
+   *            the checksum somehow but without more samples, it is hard
+   *            to tell.
+   */
+
+  public:
+    DogTronic(uint8_t transmitPin, uint8_t id)
+      : ZapMe(transmitPin), mId(id) {
+        /*
+         * In transmit timings, we need 32 timings for the sync preamble,
+         * then 32 timings to send 16 bit of data, finally 1 timing for
+         * the larger gap after the message and 1 timing for the null byte.
+         */
+        mMaxTransmitTimings = 32*2 + 2;
+        mTransmitTimings = new uint16_t[mMaxTransmitTimings];
+      }
+
+    void setId(uint8_t id) { mId = id; }
+
+    virtual void sendShock(uint8_t strength, uint16_t duration);
+
+    /*
+     * Dogtronic has no separate vibration and audio, the function is
+     * the same but there are two different versions of the collar,
+     * one with vibration and one with audio. So it doesn't really matter
+     * which of the two here is used, they map to the same functionality.
+     */
+    virtual void sendVibration(uint8_t strength, uint16_t duration);
+    virtual void sendAudio(uint8_t strength, uint16_t duration);
+
+  protected:
+
+    void sendCommand(uint8_t func, uint8_t strength, uint16_t duration);
+
+    uint8_t mId;
+    uint16_t* mTransmitTimings;
+    uint16_t mMaxTransmitTimings;
+};
+
 #endif

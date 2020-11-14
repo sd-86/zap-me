@@ -143,3 +143,128 @@ void CH8803::sendCommand(uint8_t func, uint8_t strength, uint16_t duration) {
 
   DEBUG_ZAPME_MSGLN(" complete.");
 }
+
+void DogTronic::sendShock(uint8_t strength, uint16_t duration) {
+  DEBUG_ZAPME_MSGLN("DogTronic::sendShock");
+  sendCommand(0, strength, duration);
+}
+
+void DogTronic::sendVibration(uint8_t strength /* unused */, uint16_t duration) {
+  DEBUG_ZAPME_MSGLN("DogTronic::sendVibration");
+  sendCommand(0, 0, duration);
+}
+
+void DogTronic::sendAudio(uint8_t strength /* unused */, uint16_t duration) {
+  DEBUG_ZAPME_MSGLN("DogTronic::sendAudio");
+  sendCommand(0, 0, duration);
+}
+
+void DogTronic::sendCommand(uint8_t func /* unused */, uint8_t strength, uint16_t duration) {
+  const uint16_t pulseLength = 2212;
+  const uint16_t oneGap = 8144;
+  const uint16_t zeroGap = 4012;
+  const uint16_t endGap = 64000;
+
+  const uint16_t checksum_base = 4; // 0b0100
+  const uint8_t unknown_const = 2;  // 0b10
+
+  uint16_t transmitIdx = 0;
+
+  /* This is the sync preamble */
+  mTransmitTimings[transmitIdx++] = 240;
+  mTransmitTimings[transmitIdx++] = 1700;
+  for (uint8_t pi = 0; pi < 14; ++pi) {
+    mTransmitTimings[transmitIdx++] = 240;
+    mTransmitTimings[transmitIdx++] = 776;
+  }
+  mTransmitTimings[transmitIdx++] = 388;
+  mTransmitTimings[transmitIdx++] = pulseLength;
+
+  /* Translate l bits to timings */
+  #define TRBITS_DT(b,l)                              \
+    for (uint8_t k = l - 1; k <= l - 1; --k) {        \
+      uint16_t bitGap = zeroGap;                      \
+      if (((b) & ( 1 << k )) >> k)                    \
+        bitGap = oneGap;                              \
+      mTransmitTimings[transmitIdx++] = bitGap;       \
+      mTransmitTimings[transmitIdx++] = pulseLength;  \
+    };
+
+  uint16_t command = 0;
+
+  /*
+     b15 b14 b13 b12 b11 b10 b9 b8 b7 b6 b5 b4 b3 b2 b1 b0
+     |-------- id ---------| |-- str --| |-2-| |-- chk --|
+  */
+
+  /* First 6 bits are the ID */
+  command |= (mId << 10);
+
+  /* We now need to convert the strength from MSB to LSB */
+  if (strength & 1)
+    command |= 1 << 9;
+
+  if (strength & (1 << 1))
+    command |= 1 << 8;
+
+  if (strength & (1 << 2))
+    command |= 1 << 7;
+
+  if (strength & (1 << 3))
+    command |= 1 << 6;
+
+  /* Now we have the unknown 2-bit constant */
+  command |= unknown_const << 4;
+
+  /* Calculate the checksum from the base and strength */
+  uint16_t checksum = (checksum_base + strength) % 16;
+
+  /* If an overflow happened, feed the overflow back into the sum */
+  checksum += (checksum_base + strength) >> 4;
+
+  /* Now write the checksum with bits flipped pairwise */
+  if (checksum & 1)
+    command |= 1 << 1;
+
+  if (checksum & (1 << 1))
+    command |= 1 << 0;
+
+  if (checksum & (1 << 2))
+    command |= 1 << 3;
+
+  if (checksum & (1 << 3))
+    command |= 1 << 2;
+
+
+  DEBUG_ZAPME_MSG("The following command will be encoded: ");
+  DEBUG_ZAPME_MSGLN(command);
+
+  // Translate bits to timings
+  TRBITS_DT(command, 16);
+
+  mTransmitTimings[transmitIdx++] = endGap;
+
+  /* Null terminate */
+  mTransmitTimings[transmitIdx++] = 0;
+
+#ifdef DEBUG_ZAPME
+  DEBUG_ZAPME_MSG("The following timings will be transmitted: ");
+  for (uint32_t tidx = 0; mTransmitTimings[tidx]; ++tidx) {
+    DEBUG_ZAPME_MSG(mTransmitTimings[tidx]);
+    DEBUG_ZAPME_MSG(",");
+  }
+  DEBUG_ZAPME_MSGLN("0");
+#endif
+
+  DEBUG_ZAPME_MSG("Starting transmission...");
+
+  uint32_t startTime = millis();
+
+  do {
+    /* Transmit timings */
+    sendTiming(mTransmitTimings);
+    DEBUG_ZAPME_MSG(".");
+  } while(millis() - startTime < duration);
+
+  DEBUG_ZAPME_MSGLN(" complete.");
+}
