@@ -3,7 +3,8 @@
 
   BSD 2-Clause License
 
-  Copyright (c) 2020, sd_ <sd@smjg.org>
+  Copyright (c) 2020, sd_ <sd@smjg.org> and others.
+  Please see the AUTHORS file in the main source directory for details.
   All rights reserved.
 
   Redistribution and use in source and binary forms, with or without
