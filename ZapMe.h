@@ -58,6 +58,24 @@
 #define DEBUG_ZAPME_MSG(msg) do {} while(false);
 #endif
 
+/*
+ * Common macro to translate bits into timings as follows:
+ *
+ * Each bit is a pulse of fixed-width (`pulseLength` microseconds), where
+ * a zero has a raise of `zeroLength` microseconds at the beginning and
+ * a one has a raise of `oneLength` microseconds at the beginning.
+ */
+
+ /* Translate l bits to timings */
+ #define TRBITS(b,l) \
+   for (uint8_t k = l - 1; k <= l - 1; --k) {                   \
+     uint16_t bitLength = zeroLength;                           \
+     if (((b) & ( 1 << k )) >> k)                               \
+       bitLength = oneLength;                                   \
+     mTransmitTimings[transmitIdx++] = bitLength;               \
+     mTransmitTimings[transmitIdx++] = pulseLength - bitLength; \
+   };
+
 class ZapMe {
   public:
     ZapMe(uint8_t transmitPin) : mTransmitPin(transmitPin), mDebug(false) {
@@ -199,3 +217,66 @@ class DogTronic : public ZapMe {
 };
 
 #endif
+
+class PaiPaitek : public ZapMe {
+  /*
+   * PaiPaiTek shockcollar (Euro) uses 5 bytes of data per command:
+   *
+   *  | Channel (4 bit) | Function (4 bit) | ID (16-bit) | Strength (8 bit) | Checksum (8 bit) |
+   *
+   * The ID is simply an identifier randomly assigned to each remote.
+   * Collars can be set to learning mode to be associated with a new ID.
+   *
+   * The channel is either 8, 15 or 10, mapping to CH1, CH2 or CH3 on the remote.
+   * For the `setChannel` API, we map these to 1, 2 and 3 for simplicity.
+   *
+   * The function is an integer that is either
+   *   1 (Shock)
+   *   2 (Vibration) or
+   *   4 (Sound).
+   *
+   * The strength is an integer in range 1 to 100. It is always 0 for sound.
+   *
+   * The checksum consists of 4 bits for the function and 4 bits for channel.
+   * Function (upper 4 bit) sum is 11 for Vib, 13 for Sound or 7 for Shock.
+   * Channel (lower 4 bit) sum is 14 for CH1, 0 for CH2 and 5 for CH3.
+   *
+   * The Preambel is 4000 long low / 1480 High / 960 Low.
+   *
+   * The Ending is 240 High / 2000 Low.
+   *
+   * The Timing is 250 -> 0 / 750 -> 1 / Complete 1000.
+   */
+
+  public:
+    PaiPaitek(uint8_t transmitPin, uint16_t id)
+      : ZapMe(transmitPin), mId(id), mChannel(0) {
+        /*
+         * In transmit timings, we need 3 timings for the sync preamble,
+         * then 64 timings to send 40 bit of data, then 3 trailing zeros
+         * and one for the terminating null byte we are going to use as
+         * a length indicator.
+         */
+        mMaxTransmitTimings = 3 + 2*40 + 3 + 1;
+        mTransmitTimings = new uint16_t[mMaxTransmitTimings];
+      }
+
+    void setId(uint16_t id) { mId = id; }
+    void setId(uint8_t hid, uint8_t lid) { mId = (hid << 8) + lid; }
+
+    void setChannel(uint8_t ch) { mChannel = ch; }
+
+    virtual void sendShock(uint8_t strength, uint16_t duration);
+    virtual void sendVibration(uint8_t strength, uint16_t duration);
+    virtual void sendAudio(uint8_t strength, uint16_t duration);
+    virtual void sendtest(uint16_t duration);
+
+  protected:
+
+    void sendCommand(uint8_t func, uint8_t strength, uint16_t duration);
+
+    uint16_t mId;
+    uint8_t mChannel;
+    uint16_t* mTransmitTimings;
+    uint16_t mMaxTransmitTimings;
+};

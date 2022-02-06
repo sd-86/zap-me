@@ -83,24 +83,6 @@ void CH8803::sendCommand(uint8_t func, uint8_t strength, uint16_t duration) {
   mTransmitTimings[transmitIdx++] = 1440;
   mTransmitTimings[transmitIdx++] = pulseLength - zeroLength;
 
-  /*
-   * We can now translate bits into timings as follows:
-   *
-   * Each bit is a pulse of fixed-width (`pulseLength` microseconds), where
-   * a zero has a raise of `zeroLength` microseconds at the beginning and
-   * a one has a raise of `oneLength` microseconds at the beginning.
-   */
-
-   /* Translate l bits to timings */
-   #define TRBITS(b,l) \
-     for (uint8_t k = l - 1; k <= l - 1; --k) {                   \
-       uint16_t bitLength = zeroLength;                           \
-       if (((b) & ( 1 << k )) >> k)                               \
-         bitLength = oneLength;                                   \
-       mTransmitTimings[transmitIdx++] = bitLength;               \
-       mTransmitTimings[transmitIdx++] = pulseLength - bitLength; \
-     };
-
   TRBITS(mId, 16);
   TRBITS(mChannel, 4);
   TRBITS(func, 4);
@@ -269,3 +251,91 @@ void DogTronic::sendCommand(uint8_t func /* unused */, uint8_t strength, uint16_
 
   DEBUG_ZAPME_MSGLN(" complete.");
 }
+
+
+void PaiPaitek::sendShock(uint8_t strength, uint16_t duration) {
+  DEBUG_ZAPME_MSGLN("PaiPaitek::sendShock");
+  sendCommand(1, strength, duration);
+}
+
+void PaiPaitek::sendVibration(uint8_t strength, uint16_t duration) {
+  DEBUG_ZAPME_MSGLN("PaiPaitek::sendVibration");
+  sendCommand(2, strength, duration);
+}
+
+void PaiPaitek::sendAudio(uint8_t strength /* unused */, uint16_t duration) {
+  DEBUG_ZAPME_MSGLN("PaiPaitek::sendAudio");
+  sendCommand(4, 0, duration);
+}
+
+void PaiPaitek::sendCommand(uint8_t func, uint8_t strength, uint16_t duration) {
+  const uint16_t pulseLength = 1000;
+  const uint16_t zeroLength = 250;
+  const uint16_t oneLength = 750;
+
+  uint16_t transmitIdx = 0;
+  uint8_t chSum = 0;
+
+  /* This is the sync preamble */
+  mTransmitTimings[transmitIdx++] = 4000;
+  mTransmitTimings[transmitIdx++] = 1440;
+  mTransmitTimings[transmitIdx++] = 980;
+
+  // Channel translation
+  switch (mChannel) {
+    case 1: TRBITS(8, 4); chSum = 14; break; // Ch1
+    case 2: TRBITS(15, 4); chSum = 0; break; // Ch2
+    case 3: TRBITS(10, 4); chSum = 5; break; // Ch3
+  }
+
+  TRBITS(func, 4);
+  TRBITS(mId, 16);
+  TRBITS(strength, 8);
+
+  // Function Checksum
+  switch (func) {
+    case 1: TRBITS(7, 4); break;  // Shock
+    case 2: TRBITS(11, 4); break; // Vibration
+    case 4: TRBITS(13, 4); break; // Sound
+  }
+
+  // Channel checksum
+  TRBITS(chSum, 4);
+
+  // Trail
+  mTransmitTimings[transmitIdx++] = zeroLength;
+  mTransmitTimings[transmitIdx++] = 1476;
+
+  if (mMaxTransmitTimings <= transmitIdx) {
+    // This should never happen
+    DEBUG_ZAPME_MSG("ERROR: Exceeding maximum allocated transmit timings: ");
+    DEBUG_ZAPME_MSG(transmitIdx);
+    DEBUG_ZAPME_MSGLN(mMaxTransmitTimings);
+    return;
+  }
+
+  /* Null terminate */
+  mTransmitTimings[transmitIdx++] = 0;
+
+  uint32_t startTime = millis();
+
+#ifdef DEBUG_ZAPME
+  DEBUG_ZAPME_MSG("The following timings will be transmitted: ");
+  for (uint32_t tidx = 0; mTransmitTimings[tidx]; ++tidx) {
+    DEBUG_ZAPME_MSG(mTransmitTimings[tidx]);
+    DEBUG_ZAPME_MSG(",");
+  }
+  DEBUG_ZAPME_MSGLN("0");
+#endif
+
+  DEBUG_ZAPME_MSG("Starting transmission...");
+
+  do {
+    /* Transmit timings */
+    sendTiming(mTransmitTimings);
+    DEBUG_ZAPME_MSG(".");
+  } while(millis() - startTime < duration);
+
+  DEBUG_ZAPME_MSGLN(" complete.");
+}
+
